@@ -6,6 +6,7 @@ import os
 import cv2
 import numpy as np
 from scipy.io import savemat
+import pydicom
 import logging
 
 # use logging module for easy debug
@@ -21,7 +22,7 @@ subject_pt = sheet_pt.col_values(1)
 subject_spn = sheet_spn.col_values(1)
 subjectList = subject_pt + subject_spn
 
-MIN_DESCRIPTOR = 32
+MIN_DESCRIPTOR = 8
 
 
 def find_contours(laplacian):
@@ -30,7 +31,7 @@ def find_contours(laplacian):
     :return: 最大连通域
     """
     # binaryimg = cv2.Canny(res, 50, 200) #二值化，canny检测
-    h = cv2.findContours(laplacian, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)   # 寻找轮廓
+    h = cv2.findContours(laplacian, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)   # 寻找轮廓
     contour = h[0]
     contour = sorted(contour, key=cv2.contourArea, reverse=True)    # 对一系列轮廓点坐标按它们围成的区域面积进行排序
     return contour
@@ -58,6 +59,7 @@ def fourier_descriptor(img):
     :return: 图像，描述子点
     """
     img[img > 0] = 1
+    img = img.astype("uint8")
     contours, hierarchy = cv2.findContours(img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     '''M = cv2.moments(contours[0])  # 计算第一条轮廓的各阶矩,字典形式
     center_x = int(M["m10"] / M["m00"])
@@ -76,7 +78,8 @@ if not os.path.exists("shape"):
     os.mkdir("shape")
 for subject in subjectList:
     shape = []
-    img = cv2.imread("cropped/grey/{sub}_CT.jpg".format(sub=subject), cv2.IMREAD_GRAYSCALE)
+    dcm = pydicom.dcmread("cropped/{subject}_CT.dcm".format(subject=subject))
+    img = dcm.pixel_array
     fourier_results = abs(fourier_descriptor(img))
     fourier_results = (fourier_results-np.min(fourier_results)) / (np.max(fourier_results)-np.min(fourier_results))
     for descriptor in fourier_results:
