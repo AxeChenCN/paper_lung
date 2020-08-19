@@ -30,8 +30,8 @@ subject_pt = sheet_pt.col_values(1)
 subject_spn = sheet_spn.col_values(1)
 subjectList = subject_pt + subject_spn
 
-feature_name = "shape"
-feature_length = 8
+full_name = "intensity+texture+shape_stacking"
+feature_length = 9+9+16+16+8+1024
 
 
 # 解析.mat文件，组合xy
@@ -39,8 +39,13 @@ def generate_x_y():
     x = np.empty((len(subjectList), feature_length))
     for subject_id in range(len(subjectList)):
         subject = subjectList[subject_id]
-        data = loadmat("{f}/{sub}.mat".format(f=feature_name, sub=subject))["data"].reshape(-1)
-        x[subject_id] = data.copy()
+        data1 = loadmat("intensity/{sub}_CT.mat".format(sub=subject))["data"].reshape(-1)
+        data2 = loadmat("intensity/{sub}_PET.mat".format(sub=subject))["data"].reshape(-1)
+        data3 = loadmat("texture/{sub}_CT.mat".format(sub=subject))["data"].reshape(-1)
+        data4 = loadmat("texture/{sub}_PET.mat".format(sub=subject))["data"].reshape(-1)
+        data5 = loadmat("shape/{sub}.mat".format(sub=subject))["data"].reshape(-1)
+        data6 = loadmat("deep/{sub}.mat".format(sub=subject))["data"].reshape(-1)
+        x[subject_id] = np.hstack((data1, data2, data3, data4, data5, data6))
     y = np.asarray([1]*len(subject_pt) + [0]*len(subject_spn)).astype('float32')
     return x, y
 
@@ -88,6 +93,10 @@ for iterCount in range(10):
         sen_max = 0
         featureNumOp = 10
         COp = 1
+        sk1 = SelectKBest(f_regression, k=78)
+        sk1.fit(X_train_nol, y_train)
+        X_train_nol = sk1.transform(X_train_nol)
+        X_test_nol = sk1.transform(X_test_nol)
         if not os.path.exists("selected"):
             os.mkdir("selected")
         for featureNum in range(2, X_train_nol.shape[1], 1):
@@ -120,7 +129,6 @@ for iterCount in range(10):
         rfe = RFE(lr, n_features_to_select=featureNumOp)
         rfe.fit(X_train_nol, y_train)
         selected = rfe.support_
-        savemat("selected/selected_{f}_{c}_{fold}.mat".format(f=feature_name, c=iterCount, fold=fold), {'data': selected})
         clf = svm.SVC(kernel='linear', C=COp, max_iter=15000).fit(X_train_nol[:, selected], y_train)
         score = clf.score(X_test_nol[:, selected], y_test)
         y_score = clf.decision_function(X_test_nol[:, selected])
@@ -163,8 +171,8 @@ plt.title('ROC')
 plt.show()
 if not os.path.exists("ROC"):
     os.mkdir("ROC")
-savemat("ROC/{f}_fpr.mat".format(f=feature_name), {'data': mean_fpr})
-savemat("ROC/{f}_tpr.mat".format(f=feature_name), {'data': mean_tpr})
+savemat("ROC/{f}_fpr.mat".format(f=full_name), {'data': mean_fpr})
+savemat("ROC/{f}_tpr.mat".format(f=full_name), {'data': mean_tpr})
 
 workbook = xlwt.Workbook()
 sheet = workbook.add_sheet('sheet1', cell_overwrite_ok=True)
@@ -174,4 +182,4 @@ for col in range(len(head)):
 for i in range(len(contents)):
     for col in range(len(contents[i])):
         sheet.write(i+1, col, contents[i][col])
-workbook.save('Results/{f}.xls'.format(f=feature_name))
+workbook.save('Results/{f}.xls'.format(f=full_name))
