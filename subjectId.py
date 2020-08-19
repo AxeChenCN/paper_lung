@@ -3,9 +3,9 @@
 # Author:Axe Chen
 import os
 import xlwt
-import cv2
 import numpy as np
 import pydicom
+from PIL import Image
 import logging
 
 # use logging module for easy debug
@@ -43,6 +43,8 @@ for subject_class in ["pt", "spn"]:
             dcm.PixelData = cropped.tobytes()
             # cropped[cropped == -1024] = 255
             dcm.save_as("cropped/{sub}_{mol}.dcm".format(sub=subject_id, mol=modality))
+            '''img = Image.fromarray(dcm.pixel_array).convert("I;16", colors=65536)
+            img.save("cropped/grey/{sub}_{mol}.tiff".format(sub=subject_id, mol=modality))'''
     for i in range(len(contents)):
         for col in range(len(contents[i])):
             sheet.write(i, col, contents[i][col])
