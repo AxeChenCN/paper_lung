@@ -30,7 +30,7 @@ subject_pt = sheet_pt.col_values(1)
 subject_spn = sheet_spn.col_values(1)
 subjectList = subject_pt + subject_spn
 
-full_name = "intensity+texture+shape_stacking"
+full_name = "intensity+texture+shape_concatenating"
 feature_length = 9+9+16+16+8
 
 

@@ -30,7 +30,7 @@ subject_pt = sheet_pt.col_values(1)
 subject_spn = sheet_spn.col_values(1)
 subjectList = subject_pt + subject_spn
 
-full_name = "intensity_concatenating"
+full_name = "intensity_CT+PET_concatenating"
 feature_length = 9+9
 
 
