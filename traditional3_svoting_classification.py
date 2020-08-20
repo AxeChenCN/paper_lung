@@ -30,13 +30,16 @@ subject_pt = sheet_pt.col_values(1)
 subject_spn = sheet_spn.col_values(1)
 subjectList = subject_pt + subject_spn
 
-full_name = "proposed_concatenating"
-feature_length = 9+9+16+16+8+1024
+full_name = "intensity+texture_shape_svoting"
 
 
 # 解析.mat文件，组合xy
 def generate_x_y():
-    x = np.empty((len(subjectList), feature_length))
+    x1 = np.empty((len(subjectList), 9))
+    x2 = np.empty((len(subjectList), 9))
+    x3 = np.empty((len(subjectList), 16))
+    x4 = np.empty((len(subjectList), 16))
+    x5 = np.empty((len(subjectList), 8))
     for subject_id in range(len(subjectList)):
         subject = subjectList[subject_id]
         data1 = loadmat("intensity/{sub}_CT.mat".format(sub=subject))["data"].reshape(-1)
@@ -44,10 +47,13 @@ def generate_x_y():
         data3 = loadmat("texture/{sub}_CT.mat".format(sub=subject))["data"].reshape(-1)
         data4 = loadmat("texture/{sub}_PET.mat".format(sub=subject))["data"].reshape(-1)
         data5 = loadmat("shape/{sub}.mat".format(sub=subject))["data"].reshape(-1)
-        data6 = loadmat("deep/{sub}.mat".format(sub=subject))["data"].reshape(-1)
-        x[subject_id] = np.hstack((data1, data2, data3, data4, data5, data6))
+        x1[subject_id] = data1.copy()
+        x2[subject_id] = data2.copy()
+        x3[subject_id] = data3.copy()
+        x4[subject_id] = data4.copy()
+        x5[subject_id] = data5.copy()
     y = np.asarray([1]*len(subject_pt) + [0]*len(subject_spn)).astype('float32')
-    return x, y
+    return [x1, x2, x3, x4, x5], y
 
 
 def generate_train_test(x, y, seed):
@@ -82,60 +88,59 @@ tprs = []
 contents = []
 for iterCount in range(10):
     X, Y = generate_x_y()
-    trainAndTestIndex = generate_train_test(X, Y, iterCount)
+    trainAndTestIndex = generate_train_test(X[0], Y, iterCount)
     fold = 0
     for trainIndex, testIndex in trainAndTestIndex:         # 十折交叉验证
-        X_train, X_test = X[trainIndex], X[testIndex]
         y_train, y_test = Y[trainIndex], Y[testIndex]
-        X_train_nol = X_train.copy()
-        X_test_nol = X_test.copy()
-        acc_max = 0
-        sen_max = 0
-        featureNumOp = 10
-        COp = 1
-        sk1 = SelectKBest(f_regression, k=78)
-        sk1.fit(X_train_nol, y_train)
-        X_train_nol = sk1.transform(X_train_nol)
-        X_test_nol = sk1.transform(X_test_nol)
-        if not os.path.exists("selected"):
-            os.mkdir("selected")
-        selected1 = sk1.get_support()
-        savemat("selected/selected1_{c}_{fold}.mat".format(c=iterCount, fold=fold), {'data': selected1})
-        for featureNum in range(2, X_train_nol.shape[1], 1):
-            for C in np.logspace(-4, 4, 9, base=2):
-                # logger.debug("{featureNum}, {C}".format(featureNum=featureNum, C=C))
-                lr = LinearRegression()
-                rfe = RFE(lr, n_features_to_select=featureNum)
-                rfe.fit(X_train_nol, y_train)
-                selected = rfe.support_
-                # logger.debug("2st feature selection accomplished")
-                clf = svm.SVC(kernel='linear', C=C, max_iter=15000).fit(X_train_nol[:, selected], y_train)
-                score = clf.score(X_test_nol[:, selected], y_test)
-                y_score = clf.decision_function(X_test_nol[:, selected])
-                res = clf.predict(X_test_nol[:, selected])
-                ACC, SEN, SPE = model_evaluate(test_label=y_test, res_label=res)
-                # logger.debug("module evaluation accomplished")
-                if score > acc_max:
-                    COp = C
-                    featureNumOp = featureNum
-                    acc_max = score
-                    sen_max = SEN
-                if score == acc_max:
-                    if SEN > sen_max:
+        y_scores = []
+        for feature_id in range(len(X)):
+            X_train, X_test = X[feature_id][trainIndex], X[feature_id][testIndex]
+            if feature_id != 4:
+                mean = np.mean(X_train, axis=0)     # 列归一化
+                std = np.std(X_train, axis=0)
+                X_train_nol = (X_train - mean)/std
+                X_test_nol = (X_test - mean)/std
+            else:
+                X_train_nol = X_train.copy()
+                X_test_nol = X_test.copy()
+            acc_max = 0
+            sen_max = 0
+            featureNumOp = 10
+            COp = 1
+            if not os.path.exists("selected"):
+                os.mkdir("selected")
+            for featureNum in range(2, X_train_nol.shape[1], 1):
+                for C in np.logspace(-4, 4, 9, base=2):
+                    lr = LinearRegression()
+                    rfe = RFE(lr, n_features_to_select=featureNum)
+                    rfe.fit(X_train_nol, y_train)
+                    selected = rfe.support_
+                    clf = svm.SVC(kernel='linear', C=C, max_iter=15000).fit(X_train_nol[:, selected], y_train)
+                    score = clf.score(X_test_nol[:, selected], y_test)
+                    y_score = clf.decision_function(X_test_nol[:, selected])
+                    res = clf.predict(X_test_nol[:, selected])
+                    ACC, SEN, SPE = model_evaluate(test_label=y_test, res_label=res)
+                    if score > acc_max:
                         COp = C
                         featureNumOp = featureNum
                         acc_max = score
                         sen_max = SEN
-        # logger.debug("parameter searching accomplished")
-        lr = LinearRegression()
-        rfe = RFE(lr, n_features_to_select=featureNumOp)
-        rfe.fit(X_train_nol, y_train)
-        selected = rfe.support_
-        savemat("selected/selected2_{c}_{fold}.mat".format(c=iterCount, fold=fold), {'data': selected})
-        clf = svm.SVC(kernel='linear', C=COp, max_iter=15000).fit(X_train_nol[:, selected], y_train)
-        score = clf.score(X_test_nol[:, selected], y_test)
-        y_score = clf.decision_function(X_test_nol[:, selected])
-        res = clf.predict(X_test_nol[:, selected])
+                    if score == acc_max:
+                        if SEN > sen_max:
+                            COp = C
+                            featureNumOp = featureNum
+                            acc_max = score
+                            sen_max = SEN
+            lr = LinearRegression()
+            rfe = RFE(lr, n_features_to_select=featureNumOp)
+            rfe.fit(X_train_nol, y_train)
+            selected = rfe.support_
+            clf = svm.SVC(kernel='linear', C=COp, max_iter=15000).fit(X_train_nol[:, selected], y_train)
+            y_score = clf.decision_function(X_test_nol[:, selected])
+            y_scores.append(y_score)
+        y_score = np.sum(np.array(y_scores), axis=0)/len(y_scores)
+        res = np.ones(y_score.shape)
+        res[y_score < 0] = 0
         ACC, SEN, SPE = model_evaluate(test_label=y_test, res_label=res)
         fpr, tpr, threshold = roc_curve(y_test, y_score)
         tprs.append(interp(mean_fpr, fpr, tpr))
@@ -149,15 +154,6 @@ for iterCount in range(10):
         SPEs.append(SPE)
         AUCs.append(roc_auc)
         fold += 1
-        '''plt.plot(fpr, tpr, color='darkorange', lw=2, label='ROC curve (AUC = %0.2f)' % roc_auc)
-        plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
-        plt.xlim([0.0, 1.0])
-        plt.ylim([0.0, 1.05])
-        plt.xlabel('False Positive Rate')
-        plt.ylabel('True Positive Rate')
-        plt.title('Receiver operating characteristic')
-        plt.legend(loc="lower right")
-        plt.show()'''
 logger.debug("mean: ACC={ACC}±{ACC_std}, SEN={SEN}±{SEN_std}, SPE={SPE}±{SPE_std}, AUC={AUC}±{AUC_std}".format(ACC=sum(ACCs)/len(ACCs), ACC_std=np.std(ACCs),
                                                                                                                SEN=sum(SENs)/len(SENs), SEN_std=np.std(SENs),
                                                                                                                SPE=sum(SPEs)/len(SPEs), SPE_std=np.std(SPEs),
